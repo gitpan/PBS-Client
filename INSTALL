@@ -1,0 +1,32 @@
+To install this module, please execute
+
+    perl Makefile.PL
+    make
+    make test
+    make install
+
+"make test" may be omitted if you don't want to test. However, this is 
+not recommended.
+
+If you do not have permission to install modules into the Perl site 
+tree, you may install this modules in your own library path:
+
+    perl Makefile.PL PREFIX=/home/me/perl/whatever
+    make
+    make test
+    make install
+
+To use this module, you need either set the environment variable 
+PERL5LIB as
+
+    PERL5LIB=/home/me/perl/whatever
+
+or add
+
+    use lib '/home/me/perl/whatever';
+
+before loading this module by
+
+    use PBS::Client;
+
+Ka-Wai Mak
