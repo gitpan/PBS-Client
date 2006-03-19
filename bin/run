@@ -121,7 +121,7 @@ __END__
 
 =head1 NAME
 
-run - submit command from command prompt to PBS
+run - job submission script for PBS (Portable Batch System)
 
 =head1 SYNOPSIS
 
@@ -135,9 +135,10 @@ run - submit command from command prompt to PBS
 
 =head1 DESCRIPTION
 
-C<run> is a small program applying C<PBS::Client>. It aims at making submission
-of command to PBS easy. It reads queueing options from the config file
-F<.runrc> in the home directory, generate job script and then submit to PBS.
+C<run> is a small script applying C<PBS::Client>. It aims at making job
+submission to PBS quick and easy. It reads queueing options from the config
+file F<.runrc> in the home directory, generate job script and then submit to
+PBS.
 
 Current config can be listed by the C<-l> option. The C<-e> option is used to
 create or edit the config, using the editor specified by the EDITOR or VISUAL

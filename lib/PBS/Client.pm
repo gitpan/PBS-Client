@@ -2,7 +2,7 @@ package PBS::Client;
 use strict;
 use vars qw($VERSION);
 use Carp;
-$VERSION = 0.01;
+$VERSION = 0.02;
 
 #------------------------------------------------
 # Submit jobs to PBS server
@@ -142,7 +142,6 @@ sub genScript
 	$queue .= '@'.$self->{server} if (defined $self->{server});
 	my $partition;
 	$partition = $job->{partition};
-	#$partition = $job->{cluster} if (defined $job->{cluster});
 
 	my $nodes = &_nodes($job);
 
@@ -196,13 +195,6 @@ sub genScript
 	#-------------------------------
 	my $timer = $job->{timer};
 	$cmd = &_getTime($timer, $cmd) if ($timer && $timer !~ /^(off|0|nil)$/);
-
-	#--------------------
-	# File staging by MPI
-	#--------------------
-	#my $mpistagein = $job->{mpistagein};
-	#$cmd = &_mpistage($cmd, $mpistagein) if (defined $mpistagein);
-	#$cmd =~ s/\s*;\s*/\n/g;
 
 	#----------------
 	# Execute command
@@ -597,7 +589,7 @@ __END__
 
 =head1 NAME
 
-PBS::Client - handling job submission to PBS server
+PBS::Client - job submission interface of the PBS (Portable Batch System)
 
 =head1 SYNOPSIS
 
@@ -631,13 +623,18 @@ To submit PBS jobs using PBS::Client, there are basically three steps:
 
 =over
 
-=item 1 Create a client object using C<new()>.
+=item 1 Create a client object using C<new()>, e.g.,
+
+    my $client = PBS::Client->new;
 
 =item 2 Create a job object using C<new()> and specify the commands to be
-submitted using option C<cmd>.
+submitted using option C<cmd>, e.g.,
 
-=item 3 Use the C<qsub()> method of the client object to submit the jobs, i.e.,
-C<< $client->qsub($job) >>.
+    my $job = PBS::Client::Job->new(cmd => \@commands);
+
+=item 3 Use the C<qsub()> method of the client object to submit the jobs, e.g.,
+
+    $client->qsub($job);
 
 =back
 
@@ -707,7 +704,22 @@ An array reference of PBS job ID would be returned.
                       },
      );
 
-Except C<cmd>, all attributes are optional.
+Two points may be noted:
+
+=over
+
+=item 1 Except C<cmd>, all attributes are optional.
+
+=item 2 All attributes can also be modified by methods, e.g.,
+
+    $job = PBS::Client::Job->new(cmd => [@commands]);
+
+is equivalent to
+
+    $job = PBS::Client::Job->new;
+    $job->cmd([@commands]);
+
+=back
 
 =head3 Options
 
@@ -729,18 +741,25 @@ Examples:
 
 =item * Integer
 
-C<< nodes => 3 >> means 3 nodes are used.
+    nodes => 3
+
+means that three nodes are used.
 
 =item * String / array reference
 
-C<< nodes => "delta01.clustertech.com + delta02.clustertech.com" >> or
-C<< nodes => ["delta01.clustertech.com", "delta02.clustertech.com"] >> means
-that nodes "delta01" and "delta02" are used.
+    # string representation
+    nodes => "node01 + node02"
+
+    # array representation
+    nodes => ["node01", "node02"]
+
+means that nodes "node01" and "node02" are used.
 
 =item * Hash reference
 
-C<< nodes => {delta01.clustertech.com => 2, delta02.clustertech.com => 1} >>
-means that delta01 is used with 2 processes, and delta02 with 1 processes.
+    nodes => {node01 => 2, node02 => 1}
+
+means that "node01" is used with 2 processes, and "node02" with 1 processes.
 
 =back
 
@@ -859,21 +878,30 @@ Examples:
 
 =item * 2D array reference
 
-C<< cmd => [["./a1.out"], ["./a2.out", "./a3.out"]] >> means that C<a1.out>
-would be excuted as one PBS job, while C<a2.out> and C<a3.out> would be excuted
-one by one in another job.
+    cmd => [["./a1.out"],
+            ["./a2.out" , "./a3.out"]]
+
+means that C<a1.out> would be excuted as one PBS job, while C<a2.out> and
+C<a3.out> would be excuted one by one in another job.
 
 =item * 1D array reference
 
-C<< cmd => ["./a1.out", "./a2.out"] >> means that C<a1.out> would be executed
-as one PBS job and C<a2.out> would be another. This is equilvalent to C<< cmd
-=> [["./a1.out", "./a2.out"]] >>.
+    cmd => ["./a1.out", "./a2.out"]
+
+means that C<a1.out> would be executed as one PBS job and C<a2.out> would be
+another. Therefore, this is equilvalent to
+
+    cmd => [["./a1.out", "./a2.out"]]
 
 =item * String
 
-C<< cmd => "./a.out" >> means that the command C<a.out> would be executed.
-Equilvalently, it can be C<< cmd => [["./a.out"]] >> as a 2D array or C<< cmd
-=> ["./a.out"] >> as a 1D array.
+    cmd => "./a.out"
+
+means that the command C<a.out> would be executed. Equilvalently, it can be
+
+    cmd => [["./a.out"]]  # as a 2D array
+    # or
+    cmd => ["./a.out"]    # as a 1D array.
 
 =back
 
@@ -1043,9 +1071,9 @@ allocation.
     my $pbs = PBS::Client->new;
 
     my $job = Kode::PBS::Job->new(
-        account   => 'gold',             # account string
-        partition => 'dell',             # partition name
-        queue     => 'delta',            # PBS queue name
+        account   => 'my_project',       # account string
+        partition => 'partition01',      # partition name
+        queue     => 'queue01',          # PBS queue name
         wd        => '/tmp',             # working directory
         name      => 'testing',          # job name
         script    => 'test.sh',          # name of script generated
