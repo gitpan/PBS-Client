@@ -14,13 +14,13 @@ BEGIN
 #-----------------------
 {
 	my $pbs = PBS::Client->new(
-		server  => 'clc',
+		server  => 'server01',
 	);
 	
 	my $job = PBS::Client::Job->new(
-		partition => 'dell',
-		queue     => 'delta',
-		host      => 'delta01.clustertech.com',
+		partition => 'cluster01',
+		queue     => 'queue02',
+		host      => 'node13.abc.com',
 		wd        => '/tmp/test',
 		account   => 'guest',
 		name      => 'test1',
@@ -44,7 +44,7 @@ BEGIN
 {
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		wd     => '/tmp/test',
 		script => 't02.sh',
 		cput   => '01:30:00',
@@ -74,10 +74,10 @@ BEGIN
 {
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		wd     => '/tmp/test',
 		script => 't03.sh',
-		nodes  => "delta01.clustertech.com + delta03.clustertech.com",
+		nodes  => "node01.abc.com + node03.abc.com",
 		ppn    => 2,
 		cmd    => 'date',
 	);
@@ -96,10 +96,10 @@ BEGIN
 {
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		wd     => '/tmp/test',
 		script => 't04.sh',
-		nodes  => [qw(delta01.clustertech.com delta03.clustertech.com)],
+		nodes  => [qw(node01.abc.com node03.abc.com)],
 		ppn    => 2,
 		cmd    => 'date',
 	);
@@ -118,12 +118,10 @@ BEGIN
 {
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		wd     => '/tmp/test',
 		script => 't05.sh',
-		nodes  => {'delta01.clustertech.com' => 1,
-				   'delta03.clustertech.com' => 2,
-			      },
+		nodes  => {'node01.abc.com' => 2},
 		cmd    => 'date',
 	);
 	
@@ -154,7 +152,7 @@ BEGIN
 	
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		nodes  => 2,
 		cmd    => \@cmd,
 	);
@@ -199,7 +197,7 @@ BEGIN
 	
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
-		queue  => 'delta',
+		queue  => 'queue01',
 		nodes  => 2,
 		cmd    => \@cmd,
 	);

@@ -2,23 +2,23 @@ package PBS::Client;
 use strict;
 use vars qw($VERSION);
 use Carp;
-$VERSION = 0.02;
+$VERSION = 0.03;
 
 #------------------------------------------------
-# Submit jobs to PBS server
+# Submit jobs to PBS
 #
 # Included methods:
-# - Construct job server
-#     $server = PBS::Client->new();
+# - Construct PBS client object
+#     $client = PBS::Client->new();
 #
 # - Submit jobs
-#     $server->qsub($job);
-#     -- $server -- job server
+#     $client->qsub($job);
+#     -- $client -- client object
 #     -- $job ----- job object
 #
 # - Generate job script without job submission
-#     $server->genScript($job);
-#     -- $server -- job server
+#     $client->genScript($job);
+#     -- $client -- client object
 #     -- $job ----- job object
 #------------------------------------------------
 
@@ -32,11 +32,11 @@ use Class::MethodMaker
 # Constructor method
 #
 # <IN>
-# $self -- server object
+# $self -- client object
 # %args -- argument hash
 #
 # <OUT>
-# $self -- server object
+# $self -- client object
 sub init
 {
 	my ($self, %args) = @_;
@@ -51,7 +51,7 @@ sub init
 # called subroutines: getScript(), _numPrevJob() and _qsubDepend()
 #
 # <IN>
-# $self -- server object
+# $self -- client object
 # $job --- job object
 #
 # <OUT>
@@ -124,11 +124,11 @@ sub qsub
 
 #-------------------------------------------------------
 # Generate shell script from command string array
-# called subroutines: _getTime(), _nodes() and _depend()
+# called subroutines: _trace(), _nodes() and _depend()
 # called by qsub()
 #
 # <IN>
-# $self -- server object
+# $self -- client object
 # $job --- job object
 #
 # <OUT>
@@ -156,9 +156,9 @@ sub genScript
 	print SH "#PBS -o $job->{ofile}\n" if (defined $job->{ofile});
 	print SH "#PBS -q $queue\n" if ($queue);
 	print SH "#PBS -W x=PARTITION:$partition\n" if (defined $partition);
-	print SH "#PBS -W stagein=".join(',', @{$job->{stagein}})."\n" if
+	print SH "#PBS -W stagein=".&_stage('in', $job->{stagein})."\n" if
 		(defined $job->{stagein});
-	print SH "#PBS -W stageout=".join(',', @{$job->{stageout}})."\n" if
+	print SH "#PBS -W stageout=".&_stage('out', $job->{stageout})."\n" if
 		(defined $job->{stageout});
 	print SH "#PBS -A $job->{account}\n" if (defined $job->{account});
 	print SH "#PBS -p $job->{pri}\n" if (defined $job->{pri});
@@ -173,6 +173,26 @@ sub genScript
 	print SH "#PBS -l walltime=$job->{wallt}\n" if (defined $job->{wallt});
 	print SH "#PBS -l nice=$job->{nice}\n" if (defined $job->{nice});
 
+	#---------------
+	# Beginning time
+	#---------------
+	if (defined $job->{begint})
+	{
+		my $begint = $job->{begint};
+		$begint =~ s/[\-\s]//g;
+		my @a = ($begint =~ /([\d\.]+)/g);
+
+		if (scalar(@a) == 3)
+		{
+			print SH "#PBS -a $a[0]$a[1].$a[2]\n";
+		}
+		else
+		{
+			$begint = join('', @a);
+			print SH "#PBS -a $begint\n";
+		}
+	}
+
 	#----------------------
 	# Job dependency option
 	#----------------------
@@ -183,23 +203,35 @@ sub genScript
 	}
 	print SH "\n";
 
-	#--------------------------
-	# Locate execution machines
-	#--------------------------
+	#--------------
+	# Trace the job
+	#--------------
 	my $cmd = $job->{cmd};
 	my $tracer = $job->{tracer};
-	$cmd = &_trace($cmd) if ($tracer && $tracer ne 'off');
-	
-	#-------------------------------
-	# Get start time and finish time
-	#-------------------------------
-	my $timer = $job->{timer};
-	$cmd = &_getTime($timer, $cmd) if ($timer && $timer !~ /^(off|0|nil)$/);
-
-	#----------------
-	# Execute command
-	#----------------
-	print SH "$cmd\n";
+	if ($tracer && $tracer ne 'off')
+	{
+		my $server;
+		if (defined $self->{server})
+		{
+			$server = $self->{server};
+		}
+		else
+		{
+			$server = `qstat -Bf|head -1`;
+			$server = substr($server, 8);
+		}
+		
+		my ($tfile) = (defined $job->{tfile})? ($job->{tfile}):
+			($file.'.t$PBS_JOBID');
+		&_trace($server, $tfile, $cmd);
+	}
+	else
+	{
+		#----------------
+		# Execute command
+		#----------------
+		print SH "$cmd\n";
+	}
 	close(SH);
 }
 #-------------------------------------------------------
@@ -300,48 +332,48 @@ sub _qsubDepend
 #-----------------------------------------------------
 # Trace the job by recording the location of execution
 # - called by genScript()
+#
 # <IN>
 # $cmd -- command string
-#
-# <OUT>
-# $cmd -- modified command string
 sub _trace
 {
-	my ($cmd) = @_;
-	$cmd = "echo MACHINES:\ncat \$PBS_NODEFILE\necho ''\n".$cmd;
-	return($cmd);
+	my ($server, $tfile, $cmd) = @_;
+
+	print SH "server=$server\n";
+	print SH "tfile=$tfile\n";
+	print SH 'tfile=${tfile/%.$server/}'."\n";
+
+	# Get machine, start and finish time
+	print SH 'start=`date +\'%F %T\'`'."\n";
+	print SH 'echo "START:   $start" >> $tfile'."\n";
+	print SH 'echo MACHINES: >> $tfile'."\n";
+	print SH 'cat $PBS_NODEFILE >> $tfile'."\n";
+	print SH 'echo "" >> $tfile'."\n\n";
+	print SH "$cmd\n\n";
+	print SH 'finish=`date +\'%F %T\'`'."\n";
+	print SH 'echo "FINISH:  $finish" >> $tfile'."\n";
+
+	# Calculate the duration of the command
+	print SH 'begin=`date +%s -d "$start"`'."\n";
+	print SH 'end=`date +%s -d "$finish"`'."\n";
+	print SH 'sec=`expr $end - $begin`'."\n";
+	print SH 'if [ $sec -ge 60 ]'."\n";
+	print SH 'then'."\n";
+	print SH '	min=`expr $sec / 60`'."\n";
+	print SH '	sec=`expr $sec % 60`'."\n\n";
+	print SH '	if [ $min -ge 60 ]'."\n";
+	print SH '	then'."\n";
+	print SH '		hr=`expr $min / 60`'."\n";
+	print SH '		min=`expr $min % 60`'."\n";
+	print SH '		echo "RUNTIME: $hr hr $min min $sec sec" >> $tfile'."\n";
+	print SH '	else'."\n";
+	print SH '		echo "RUNTIME: $min min $sec sec" >> $tfile'."\n";
+	print SH '	fi'."\n";
+	print SH 'else'."\n";
+	print SH '	echo "RUNTIME: $sec sec" >> $tfile'."\n";
+	print SH 'fi'."\n";
 }
 #-----------------------------------------------------
-
-
-#---------------------------------------------------
-# Modified $cmd to obtain start time and finish time
-# - called by genScript()
-# - depreciated
-#
-# <IN>
-# $timer -- time format
-# $cmd ---- command string
-#
-# <OUT>
-# $cmd -- modified command string
-sub _getTime
-{
-	my ($timer, $cmd) = @_;
-	
-	if ($timer =~ /^(on|1|default)$/)			# default format
-	{
-		$cmd = 'echo "START:  `date`"; '.$cmd;	# start time
-		$cmd .= '; echo "FINISH: `date`"';		# finish time
-	}
-	else										# user-defined format
-	{
-		$cmd = 'echo "START:  `date '."+'$timer'".'`"; '.$cmd;
-		$cmd .= '; echo "FINISH: `date '."+'$timer'".'`"';
-	}
-	return($cmd);
-}
-#---------------------------------------------------
 
 
 #----------------------------------------------------------
@@ -422,6 +454,65 @@ sub _nodes
 
 
 #----------------------------------------------------------
+sub _stage
+{
+	my ($act, $file) = @_;
+	my $type = ref($file);
+
+	#-------------------------------------------
+	# String
+	# Example:
+	# stagein => "to01.file@fromMachine:from01.file,".
+	#            "to02.file@fromMachine:from02.file"
+	# stageout => "from01.file@toMachine:to01.file,".
+	#             "from02.file@toMachine:to02.file"
+	#-------------------------------------------
+	return($file) if ($type eq '');
+
+	#-------------------------------------------
+	# Array
+	# Example:
+	# stagein => ['to01.file@fromMachine:from01.file',
+	#             'to02.file@fromMachine:from02.file']
+	# stageout => ['from01.file@toMachine:to01.file',
+	#              'from02.file@toMachine:to02.file']
+	#-------------------------------------------
+	return(join(',', @$file)) if ($type eq 'ARRAY');
+
+	#-------------------------------------------
+	# Hash
+	# Example:
+	# stagein => {'fromMachine:from01.file' => 'to01.file',
+	#             'fromMachine:from02.file' => 'to02.file'}
+	# stageout => {'from01.file' => 'toMachine:to01.file',
+	#              'from02.file' => 'toMachine:to02.file'}
+	#-------------------------------------------
+	if ($type eq 'HASH')
+	{
+		if ($act eq 'in')
+		{
+			my @stages;
+			foreach my $f (keys %$file)
+			{
+				push(@stages, "$$file{$f}".'@'."$f");
+			}
+			return(join(',', @stages));
+		}
+		elsif ($act eq 'out')
+		{
+			my @stages;
+			foreach my $f (keys %$file)
+			{
+				push(@stages, "$f".'@'."$$file{$f}");
+			}
+			return(join(',', @stages));
+		}
+	}
+}
+#----------------------------------------------------------
+
+
+#----------------------------------------------------------
 # Construct the job dependency string
 # called by genScript()
 #
@@ -461,9 +552,9 @@ use Class::MethodMaker
 	new_with_init => 'new',
 	new_hash_init => '_init_args',
 	deep_copy     => 'clone',
-	get_set       => [qw(wd name script tracer timer host nodes ppn account
-		cluster partition queue ofile efile pri mem pmem vmem pvmem cput pcput
-		wallt nice pbsid cmd prev next depend stagein stageout mpistagein)];
+	get_set       => [qw(wd name script tracer host nodes ppn account
+		partition queue begint ofile efile tfile pri mem pmem vmem pvmem cput
+		pcput wallt nice pbsid cmd prev next depend stagein stageout)];
 
 
 #-----------------------
@@ -486,7 +577,6 @@ sub init
 	$self->wd($wd);
 	$self->script('pbsjob.sh');
 	$self->tracer('off');
-	$self->timer('off');
 
 	#-----------------------------
 	# optionally override defaults
@@ -589,7 +679,7 @@ __END__
 
 =head1 NAME
 
-PBS::Client - job submission interface of the PBS (Portable Batch System)
+PBS::Client - Job submission interface of the PBS (Portable Batch System)
 
 =head1 SYNOPSIS
 
@@ -613,9 +703,9 @@ PBS::Client - job submission interface of the PBS (Portable Batch System)
 
 =head1 DESCRIPTION
 
-This module lets you submit jobs to PBS server in Perl. It would be especially
-useful when you submit a large amount of jobs. Inter-dependency among jobs can
-also be declared.
+This module lets you submit jobs to the PBS server in Perl. It would be
+especially useful when you submit a large amount of jobs. Inter-dependency
+among jobs can also be declared.
 
 =head1 SIMPLE USAGE
 
@@ -667,16 +757,19 @@ An array reference of PBS job ID would be returned.
 =head2 new()
 
      $job = PBS::Client::Job->new(
+         # Job declaration options
          wd        => $wd,              # working directory, default: cwd
-         nodes     => $nodes,           # execution nodes, default: 1
          name      => $name,            # job name, default: pbsjob.sh
          script    => $script,          # job script name, default: pbsjob.sh
          account   => $account,         # account string
+
+         # Resources options
          partition => $partition,       # partition
          queue     => $queue,           # queue
+         begint    => $begint,          # beginning time
          host      => $host,            # host used to execute
-         stagein   => [@in_files],      # files staged in
-         stageout  => [@out_files],     # files staged out
+         nodes     => $nodes,           # execution nodes, default: 1
+         ppn       => $ppn,             # process per node
          pri       => $pri,             # priority
          nice      => $nice,            # nice value
          mem       => $mem,             # requested total memory
@@ -686,10 +779,15 @@ An array reference of PBS job ID would be returned.
          cput      => $cput,            # requested total CPU time
          pcput     => $pcput,           # requested per-process CPU time
          wallt     => $wallt,           # requested wall time
-         ppn       => $ppn,             # process per node
-         cmd       => [@commands],      # command to be submitted
-         efile     => $efile,           # standard error file
+
+         # IO options
+         stagein   => $stagein,         # files staged in
+         stageout  => $stageout,        # files staged out
          ofile     => $ofile,           # standard output file
+         efile     => $efile,           # standard error file
+
+         # Command options
+         cmd       => [@commands],      # command to be submitted
          prev      => {
                        ok    => $job1,  # successful job before $job
                        fail  => $job2,  # failed job before $job
@@ -702,6 +800,10 @@ An array reference of PBS job ID would be returned.
                        start => $job7,  # next job after $job started
                        end   => $job8,  # next job after $job ended
                       },
+
+         # Job tracer options
+         tracer    => $on,              # job tracer, either on / off (default)
+         tfile     => $tfile,           # tracer report file
      );
 
 Two points may be noted:
@@ -721,12 +823,56 @@ is equivalent to
 
 =back
 
-=head3 Options
+=head3 Job Declaration Options
 
 =head4 wd
 
 Full path of the working directory, i.e. the directory where the command(s) is
 executed. The default value is the current working directory.
+
+=head4 name
+
+Job name. It can have 15 or less characters. It cannot contain space and the
+first character must be alphabetic. If not specified, it would follow the
+script name.
+
+=head4 script
+
+Filename prefix of the job script to be generated. The PBS job ID would be
+appended to the filename as the suffix.
+
+Example: C<< script => test.sh >> would generate a job script like
+F<test.sh.12345> if the job ID is '12345'.
+
+The default value is C<pbsjob.sh>.
+
+=head4 account
+
+Account string. This is meaningful if you need to which account you are using
+to submit the job.
+
+=head3 Resources Options
+
+=head4 partition
+
+Partition name. This is meaningful only for the clusters with partitions. If it
+is omitted, default value will be assumed.
+
+=head4 queue
+
+Queue of which jobs are submitted to. If omitted, default queue would be used.
+
+=head4 begint (Experimental)
+
+The date-time at which the job begins to queue. The format is either
+"[[[[CC]YY]MM]DD]hhmm[.SS]" or "[[[[CC]YY-]MM-]DD] hh:mm[:SS]".
+
+This feature is in Experimental phase. It may not be supported in later
+versions.
+
+=head4 host
+
+You can specify the host on which the job will be run.
 
 =head4 nodes
 
@@ -763,51 +909,9 @@ means that "node01" is used with 2 processes, and "node02" with 1 processes.
 
 =back
 
-=head4 name
+=head4 ppn
 
-Job name. It can have 15 or less characters. It cannot contain space and the
-first character must be alphabetic. If not specified, it would follow the
-script name.
-
-=head4 script
-
-Filename prefix of the job script to be generated. The PBS job ID would be
-appended to the filename as the suffix.
-
-Example: C<< script => test.sh >> would generate a job script like
-F<test.sh.12345> if the job ID is '12345'.
-
-The default value is C<pbsjob.sh>.
-
-=head4 account
-
-Account string. This is meaningful if you need to which account you are using
-to submit the job.
-
-=head4 partition
-
-Partition name. This is meaningful only for the clusters with partitions. If it
-is omitted, default value will be assumed.
-
-=head4 queue
-
-Queue of which jobs are submitted to. If omitted, default queue would be used.
-
-=head4 host
-
-You can specify the host on which the job will be run.
-
-=head4 stagein
-
-Specify which files are need to stage (copy) in before the job starts. An array
-reference of file list is expected. For example, C<< stagein => ["dir1/file1",
-"dir2/file2, ..."] >>.
-
-=head4 stageout
-
-Specify which files are need to stage (copy) out after the job finishs. An
-array reference of file list is expected. For example, C<< stageout =>
-["dir1/file1","dir2/file2, ..."] >>.
+Maximum number of processes per node. The default value is 1.
 
 =head4 pri
 
@@ -859,9 +963,73 @@ Maximum amount of per-process CPU time. Values are specified in the form
 Maximum amount of wall time used. Values are specified in the form
 [[hours:]minutes:]seconds[.milliseconds].
 
-=head4 ppn
+=head3 IO Options
 
-Maximum number of processes per node. The default value is 1.
+=head4 stagein
+
+Specify which files are need to stage (copy) in before the job starts. It may
+be a string, array reference or hash reference. For example, to stage in
+F<from01.file> and F<from02.file> in the remote host "fromMachine" and rename
+F<to01.file> and F<to02.file> respectively, following three representation are
+equilvalent:
+
+=over
+
+=item * String
+
+    stagein => "to01.file@fromMachine:from01.file,".
+               "to02.file@fromMachine:from02.file"
+
+=item * Array
+
+    stagein => ['to01.file@fromMachine:from01.file',
+                'to02.file@fromMachine:from02.file']
+
+=item * Hash
+
+    stagein => {'fromMachine:from01.file' => 'to01.file',
+                'fromMachine:from02.file' => 'to02.file'}
+
+=back
+
+=head4 stageout
+
+Specify which files are need to stage (copy) out after the job finishs. Same as C<stagein>, it may be string, array reference or hash reference.
+
+Examples:
+
+=over
+
+=item * String
+
+    stageout => "from01.file@toMachine:to01.file,".
+                "from02.file@toMachine:to02.file"
+
+=item * Array
+
+    stageout => ['from01.file@toMachine:to01.file',
+                 'from02.file@toMachine:to02.file']
+
+=item * Hash
+
+    stageout => {'from01.file' => 'toMachine:to01.file',
+                 'from02.file' => 'toMachine:to02.file'}
+
+=back
+
+=head4 ofile
+
+Path of the file for standard output. The default filename is like
+F<jobName.o12345> if the job name is 'jobName' and its ID is '12345'. Please
+see also C<efile>.
+
+=head4 efile
+
+Path of the file for standard error. The default filename is like
+F<jobName.e12345> if the job name is 'jobName' and its ID is '12345'. Please
+see also C<ofile>.
+
+=head3 Command Options
 
 =head4 cmd
 
@@ -905,18 +1073,6 @@ means that the command C<a.out> would be executed. Equilvalently, it can be
 
 =back
 
-=head4 efile
-
-Path of the file for standard error. The default filename is like
-F<jobName.e12345> if the job name is 'jobName' and its ID is '12345'. Please
-see also C<ofile>.
-
-=head4 ofile
-
-Path of the file for standard output. The default filename is like
-F<jobName.o12345> if the job name is 'jobName' and its ID is '12345'. Please
-see also C<efile>.
-
 =head4 prev
 
 Hash reference which declares the job(s) executed beforehand. The hash can have
@@ -939,6 +1095,27 @@ failure. Please see also C<prev>.
 Example: C<< $job1->next({ok => $job2, fail => $job3}) >> means that C<$job2>
 would be executed after C<$job1> exits normally, and otherwise C<job3> would be
 executed instead.
+
+=head3 Job Tracer Options
+
+=head4 tracer (Experimental)
+
+Trace when and where the job was executing. It takes value of either on or off
+(default). If it is turned on, an extra tracer report file would be generated.
+It records when the job started, where it ran, when it finished and how long it
+used.
+
+This feature is in Experimental phase. It may not be supported in later
+versions.
+
+=head4 tfile (Experimental)
+
+Path of the tracer report file. The default filename is like F<jobName.t12345>
+if the job name is 'jobName' and its ID is '12345'. Please see also C<ofile>
+and C<efile>.
+
+This feature is in Experimental phase. It may not be supported in later
+versions.
 
 =head2 pbsid
 
@@ -1126,8 +1303,13 @@ Class::MethodMaker
 
 =head1 BUGS
 
-Perhaps many, but none is found yet. Bugs and suggestions please email to
-kwmak@cpan.org
+Perhaps many. Bugs and suggestions please email to kwmak@cpan.org
+
+=head1 SEE ALSO
+
+    PBS offical website http://www.openpbs.com,
+
+    PBS
 
 =head1 AUTHOR(S)
 

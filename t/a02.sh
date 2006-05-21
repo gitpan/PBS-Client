@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #PBS -d /tmp/test
-#PBS -q delta
+#PBS -q queue01
 #PBS -p 10
 #PBS -l nodes=2:ppn=1
 #PBS -l mem=600mb

@@ -4,10 +4,10 @@
 #PBS -d /tmp/test
 #PBS -e test1.err
 #PBS -o test1.out
-#PBS -q delta@clc
-#PBS -W x=PARTITION:dell
+#PBS -q queue02@server01
+#PBS -W x=PARTITION:cluster01
 #PBS -A guest
 #PBS -l nodes=1
-#PBS -l host=delta01.clustertech.com
+#PBS -l host=node13.abc.com
 
 pwd

@@ -1,0 +1,15 @@
+Change log for PBS::Client
+
+0.01
+	Initial public release
+
+0.02
+	Improve documentation
+
+0.03
+	- Improve documentation
+	- Improve the config file parser in the "run" utility
+	- Support string and hash representation of the "stagein" and 
+	  "stageout" options
+	- Add begin time option (experimental)
+	- Add job tracing options (experimental)

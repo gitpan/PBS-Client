@@ -109,7 +109,11 @@ sub readCfg
 		next if (/(^\s*$|^\s*#|^\s*\[.*\]\s*$)/);
 
 		my @a = split(/\s*=\s*/);
-		my $val = eval($a[1]);
+		my $val = $a[1];
+
+		# Eval unless the value is a string beginning with a letter
+		$val = eval($a[1]) if ($a[1] !~ /^\d/ ||
+			$a[1] =~ /^([+-]?)(?=\d|\.\d)\d*(\.\d*)?([Ee]([+-]?\d+))?$/);
 		$cfg{$a[0]} = ($@)? ($a[1]) : ($val);
 	}
 	close(CFG);
@@ -155,22 +159,27 @@ and error file will be generated. They have names "[job name].o[job ID]" and
 
 =head1 CONFIG FILE
 
-Queueing options are declaring in F<.runrc> in the home directory. It assumes
-being in C<.ini>-style, i.e. of the format
+Queueing options are declaring in F<.runrc> in the home directory. It has
+C<.ini>-style format, i.e.
 
     Parameter_1 = Value_1
     Parameter_2 = Value_2
 
-Spaces beside C<=> are optional. For example:
+Spaces beside C<=> are optional. Also, lines beginning with "#" and blank lines
+are ignored. For example:
 
-    queue = delta
-    nodes = 2
+    # This is a sample config file for the "run" utility
+    queue = queue01
+	name  = sample
+    
+    nodes = ['node01', 'node02']
+    ppn   = 2
     cput  = 01:00:00
-    mem   = '1gb'
+    mem   = 600mb
 
 To list the current configuration, use the C<-l> option. To create or edit the
-config file, use the C<-e> option. The default editor is C<vi>. This can be
-modified by specifying the environment variable EDITOR or VISUAL.
+config file, use the C<-e> option. The default editor is C<vi>. To use other
+editor, please modify the environment variable EDITOR or VISUAL.
 
 =head1 EXAMPLES
 
