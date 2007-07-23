@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
-use Test::More (tests => 10);
+use Test::More (tests => 11);
 
 BEGIN
 {
@@ -21,7 +21,7 @@ BEGIN
 		partition => 'cluster01',
 		queue     => 'queue02',
 		host      => 'node13.abc.com',
-		wd        => '/tmp/test',
+		wd        => '/tmp',
 		account   => 'guest',
 		name      => 'test1',
 		script    => 't01.sh',
@@ -32,9 +32,9 @@ BEGIN
 	
 	$pbs->genScript($job);
 
-	my $diff = `diff t01.sh t/a01.sh`;
+	my $diff = `diff $job->{_tempScript} t/a01.sh`;
 	is($diff, '', "execution related request");
-	unlink("t01.sh");
+	unlink($job->{_tempScript});
 }
 
 
@@ -45,7 +45,7 @@ BEGIN
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
 		queue  => 'queue01',
-		wd     => '/tmp/test',
+		wd     => '/tmp',
 		script => 't02.sh',
 		cput   => '01:30:00',
 		pcput  => '00:10:00',
@@ -62,9 +62,9 @@ BEGIN
 	
 	$pbs->genScript($job);
 
-	my $diff = `diff t02.sh t/a02.sh`;
+	my $diff = `diff $job->{_tempScript} t/a02.sh`;
 	is($diff, '', "resource request");
-	unlink("t02.sh");
+	unlink($job->{_tempScript});
 }
 
 
@@ -75,7 +75,7 @@ BEGIN
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
 		queue  => 'queue01',
-		wd     => '/tmp/test',
+		wd     => '/tmp',
 		script => 't03.sh',
 		nodes  => "node01.abc.com + node03.abc.com",
 		ppn    => 2,
@@ -84,9 +84,9 @@ BEGIN
 
 	$pbs->genScript($job);
 
-	my $diff = `diff t03.sh t/a03.sh`;
+	my $diff = `diff $job->{_tempScript} t/a03.sh`;
 	is($diff, '', "request nodes in string format");
-	unlink("t03.sh");
+	unlink($job->{_tempScript});
 }
 
 
@@ -97,8 +97,8 @@ BEGIN
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
 		queue  => 'queue01',
-		wd     => '/tmp/test',
-		script => 't04.sh',
+		wd     => '/tmp',
+		script => 't03.sh',
 		nodes  => [qw(node01.abc.com node03.abc.com)],
 		ppn    => 2,
 		cmd    => 'date',
@@ -106,9 +106,9 @@ BEGIN
 	
 	$pbs->genScript($job);
 
-	my $diff = `diff t04.sh t/a03.sh`;
+	my $diff = `diff $job->{_tempScript} t/a03.sh`;
 	is($diff, '', "request nodes in array format");
-	unlink("t04.sh");
+	unlink($job->{_tempScript});
 }
 
 
@@ -119,7 +119,7 @@ BEGIN
 	my $pbs = PBS::Client->new;
 	my $job = PBS::Client::Job->new(
 		queue  => 'queue01',
-		wd     => '/tmp/test',
+		wd     => '/tmp',
 		script => 't05.sh',
 		nodes  => {'node01.abc.com' => 2},
 		cmd    => 'date',
@@ -127,9 +127,9 @@ BEGIN
 	
 	$pbs->genScript($job);
 
-	my $diff = `diff t05.sh t/a05.sh`;
+	my $diff = `diff $job->{_tempScript} t/a05.sh`;
 	is($diff, '', "request nodes in hash format");
-	unlink("t05.sh");
+	unlink($job->{_tempScript});
 }
 
 
@@ -292,4 +292,24 @@ BEGIN
 	#---------------------
 	
 	is($fail, 0, "copying job object");
+}
+
+
+#----------------------------------
+# Test job submission and execution
+#----------------------------------
+{
+	my $pbs = PBS::Client->new();
+	
+	my $job = PBS::Client::Job->new(
+		efile => '/dev/null',
+		ofile => '/dev/null',
+		cmd   => '',
+	);
+
+	my $id = $pbs->qsub($job);
+	system("qdel @$id") if (defined $id);
+	system("rm pbsjob.sh.$$id[0]");
+	
+	ok($$id[0] =~ /\d/, "job submission and execution");
 }

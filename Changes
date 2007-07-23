@@ -13,3 +13,9 @@ Change log for PBS::Client
 	  "stageout" options
 	- Add begin time option (experimental)
 	- Add job tracing options (experimental)
+
+0.04
+	- Improve documentation
+	- Improve output format of job tracer
+	- Use temp file to store the temporary script to avoid possible conflict of
+	  filename

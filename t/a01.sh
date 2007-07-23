@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #PBS -N test1
-#PBS -d /tmp/test
+#PBS -d /tmp
 #PBS -e test1.err
 #PBS -o test1.out
 #PBS -q queue02@server01

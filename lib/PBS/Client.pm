@@ -2,7 +2,7 @@ package PBS::Client;
 use strict;
 use vars qw($VERSION);
 use Carp;
-$VERSION = 0.03;
+$VERSION = 0.04;
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -22,6 +22,7 @@ $VERSION = 0.03;
 #     -- $job ----- job object
 #------------------------------------------------
 
+use File::Temp qw(tempfile);
 use Class::MethodMaker
 	new_with_init => 'new',
 	new_hash_init => '_init_args',
@@ -46,9 +47,9 @@ sub init
 #-----------------------
 
 
-#-----------------------------------------------------------------
+#-------------------------------------------------------------------
 # Submit PBS jobs by qsub command
-# called subroutines: getScript(), _numPrevJob() and _qsubDepend()
+# - called subroutines: getScript(), _numPrevJob() and _qsubDepend()
 #
 # <IN>
 # $self -- client object
@@ -82,10 +83,10 @@ sub qsub
 	#-----------------------------------------------
 	if (!ref($job->{cmd}))
 	{
-		&genScript($self, $job);
-		my $out = `qsub $file`;
-		my $pbsid = ($out =~ /^(\d+)/)[0];
-		rename($file, "$file.$pbsid");
+		my $tempFile = &genScript($self, $job);			# generate script
+		my $out = `qsub $tempFile`;						# submit script
+		my $pbsid = ($out =~ /^(\d+)/)[0];				# get pid
+		rename($tempFile, "$file.$pbsid");				# rename script
 		push(@pbsid, $pbsid);
 		$job->pbsid($pbsid);
 	}
@@ -103,10 +104,10 @@ sub qsub
 			$subjob->{cmd} = $cmd;
 	
 			# Generate and submit job script
-			&genScript($self, $subjob);				# generate script
-			my $out = `qsub $file`;					# submit script
-			my $pbsid = ($out =~ /^(\d+)/)[0];		# grab pid
-			rename("$file", "$file.$pbsid");		# rename script
+			my $tempFile = &genScript($self, $subjob);	# generate script
+			my $out = `qsub $tempFile`;					# submit script
+			my $pbsid = ($out =~ /^(\d+)/)[0];			# get pid
+			rename($tempFile, "$file.$pbsid");			# rename script
 			push(@pbsid, $pbsid);
 		}
 		$job->pbsid(\@pbsid);
@@ -119,24 +120,23 @@ sub qsub
 
 	return(\@pbsid);
 }
+#-------------------------------------------------------------------
+
+
 #-----------------------------------------------------------------
-
-
-#-------------------------------------------------------
 # Generate shell script from command string array
-# called subroutines: _trace(), _nodes() and _depend()
-# called by qsub()
+# - called subroutines: _trace(), _nodes(), _stage() and _depend()
+# - called by qsub()
 #
 # <IN>
 # $self -- client object
 # $job --- job object
 #
 # <OUT>
-# job script
+# $file -- filename of job script
 sub genScript
 {
 	my ($self, $job) = @_;
-	my $file = $job->{script};
 	my $queue = '';
 	$queue .= $job->{queue};
 	$queue .= '@'.$self->{server} if (defined $self->{server});
@@ -145,12 +145,19 @@ sub genScript
 
 	my $nodes = &_nodes($job);
 
+	#------------------------------------
+	# Set internal variable:
+	# - temporary file for the job script
+	#------------------------------------
+	my (undef, $file) = tempfile(DIR => $job->{wd});
+	$job->_tempScript($file);
+
 	#------------------------
 	# PBS request option list
 	#------------------------
 	open(SH, ">$file") || confess "Can't write $file";
 	print SH "#!/bin/sh\n\n";
-	print SH "#PBS -N $job->{name}\n" if (defined $job->{name});
+	print SH "#PBS -N $job->{name}\n";
 	print SH "#PBS -d $job->{wd}\n";
 	print SH "#PBS -e $job->{efile}\n" if (defined $job->{efile});
 	print SH "#PBS -o $job->{ofile}\n" if (defined $job->{ofile});
@@ -222,7 +229,7 @@ sub genScript
 		}
 		
 		my ($tfile) = (defined $job->{tfile})? ($job->{tfile}):
-			($file.'.t$PBS_JOBID');
+			($job->{script}.'.t$PBS_JOBID');
 		&_trace($server, $tfile, $cmd);
 	}
 	else
@@ -233,8 +240,10 @@ sub genScript
 		print SH "$cmd\n";
 	}
 	close(SH);
+
+	return($file);
 }
-#-------------------------------------------------------
+#-----------------------------------------------------------------
 
 
 #------------------------------
@@ -285,7 +294,7 @@ sub _numPrevJob
 
 #----------------------
 # Submit dependent jobs
-# called by qsub()
+# - called by qsub()
 sub _qsubDepend
 {
 	my ($self, $job, $pbsid) = @_;
@@ -344,14 +353,14 @@ sub _trace
 	print SH 'tfile=${tfile/%.$server/}'."\n";
 
 	# Get machine, start and finish time
-	print SH 'start=`date +\'%F %T\'`'."\n";
-	print SH 'echo "START:   $start" >> $tfile'."\n";
-	print SH 'echo MACHINES: >> $tfile'."\n";
+	print SH 'echo MACHINES : > $tfile'."\n";
 	print SH 'cat $PBS_NODEFILE >> $tfile'."\n";
-	print SH 'echo "" >> $tfile'."\n\n";
-	print SH "$cmd\n\n";
+	print SH 'echo "" >> $tfile'."\n";
+	print SH 'start=`date +\'%F %T\'`'."\n";
+	print SH 'echo "START   : $start" >> $tfile'."\n";
+	print SH "\n$cmd\n\n";
 	print SH 'finish=`date +\'%F %T\'`'."\n";
-	print SH 'echo "FINISH:  $finish" >> $tfile'."\n";
+	print SH 'echo "FINISH  : $finish" >> $tfile'."\n";
 
 	# Calculate the duration of the command
 	print SH 'begin=`date +%s -d "$start"`'."\n";
@@ -365,12 +374,12 @@ sub _trace
 	print SH '	then'."\n";
 	print SH '		hr=`expr $min / 60`'."\n";
 	print SH '		min=`expr $min % 60`'."\n";
-	print SH '		echo "RUNTIME: $hr hr $min min $sec sec" >> $tfile'."\n";
+	print SH '		echo "RUNTIME : $hr hr $min min $sec sec" >> $tfile'."\n";
 	print SH '	else'."\n";
-	print SH '		echo "RUNTIME: $min min $sec sec" >> $tfile'."\n";
+	print SH '		echo "RUNTIME : $min min $sec sec" >> $tfile'."\n";
 	print SH '	fi'."\n";
 	print SH 'else'."\n";
-	print SH '	echo "RUNTIME: $sec sec" >> $tfile'."\n";
+	print SH '	echo "RUNTIME : $sec sec" >> $tfile'."\n";
 	print SH 'fi'."\n";
 }
 #-----------------------------------------------------
@@ -378,7 +387,7 @@ sub _trace
 
 #----------------------------------------------------------
 # Construct node request string
-# called by genScript()
+# - called by genScript()
 #
 # <IN>
 # $job -- job object
@@ -454,6 +463,8 @@ sub _nodes
 
 
 #----------------------------------------------------------
+# Construct string for file staging (in and out)
+# - called by genScript()
 sub _stage
 {
 	my ($act, $file) = @_;
@@ -514,7 +525,7 @@ sub _stage
 
 #----------------------------------------------------------
 # Construct the job dependency string
-# called by genScript()
+# - called by genScript()
 #
 # <IN>
 # $arg -- hash reference of job dependency
@@ -554,7 +565,8 @@ use Class::MethodMaker
 	deep_copy     => 'clone',
 	get_set       => [qw(wd name script tracer host nodes ppn account
 		partition queue begint ofile efile tfile pri mem pmem vmem pvmem cput
-		pcput wallt nice pbsid cmd prev next depend stagein stageout)];
+		pcput wallt nice pbsid cmd prev next depend stagein stageout
+		_tempScript)];
 
 
 #-----------------------
@@ -582,6 +594,11 @@ sub init
 	# optionally override defaults
 	#-----------------------------
 	$self->_init_args(%args);
+
+	#-----------------
+	# Default job name
+	#-----------------
+	$self->name($self->{script}) if (!defined $self->{name});
 	return $self;
 }
 #-----------------------
@@ -662,7 +679,7 @@ sub pack
 sub copy
 {
 	my ($self, $num) = @_;
-	return $self->clone if (!defined $num);
+	return $self->clone if (!defined $num || $num == 1);
 
 	my @job = ();
 	while($num > 0)
@@ -679,59 +696,69 @@ __END__
 
 =head1 NAME
 
-PBS::Client - Job submission interface of the PBS (Portable Batch System)
+PBS::Client - Job submission interface to PBS (Portable Batch System)
 
 =head1 SYNOPSIS
 
     # Load this module
     use PBS::Client;
     
-    # Create a client object linked to a server
-    my $client = PBS::Client->new;
+    # Create a client object
+    my $client = PBS::Client->new();
     
-    # Discribe the job
+    # Specify the job
     my $job = PBS::Client::Job->new(
-    	%job_options,		# e.g. queue => 'queue_1', mem => '800mb'
-    	cmd => \@commands
+        queue => <job queue>,
+        mem   => <memory requested>,
+        .....
+    	cmd   => <command list in array reference>
     );
     
-    # Optionally, re-organize the commands to a number of queues
-    $job->pack(numQ => $numQ);
+    # Optionally, re-organize the commands to a number of batched
+    $job->pack(numQ => <number of batch>);
     
-    # Submit job
+    # Submit the job
     $client->qsub($job);
 
 =head1 DESCRIPTION
 
-This module lets you submit jobs to the PBS server in Perl. It would be
-especially useful when you submit a large amount of jobs. Inter-dependency
-among jobs can also be declared.
+This module provides a Perl interface to submit jobs to the PBS (Portable Batch
+System) server, which is a system to allocate recources of a cluster over jobs.
+It lets you submit jobs on the fly.
+
+To submit jobs by PBS::Client, simply prepare two objects: the client object
+and the job object. The client object connects to the server and submits jobs
+(described by the job object) by the method C<qsub>.
+
+The job object specifies various properties of a job (or a group of jobs).
+Properties that can be specified includes job name, CPU time, memory, priority,
+job inter-dependency and many others.
 
 =head1 SIMPLE USAGE
 
-To submit PBS jobs using PBS::Client, there are basically three steps:
+Three basic steps:
 
 =over
 
-=item 1 Create a client object using C<new()>, e.g.,
+=item 1. Create a client object, e.g.,
 
-    my $client = PBS::Client->new;
+    my $client = PBS::Client->new();
 
-=item 2 Create a job object using C<new()> and specify the commands to be
-submitted using option C<cmd>, e.g.,
+=item 2. Create a job object and specify the commands to be submitted. E.g., to
+submit jobs to get the current working directory and current date-time:
 
-    my $job = PBS::Client::Job->new(cmd => \@commands);
+    my $job = PBS::Client::Job->new(cmd => ['pwd', 'date']);
 
-=item 3 Use the C<qsub()> method of the client object to submit the jobs, e.g.,
+=item 3. Use the C<qsub()> method of the client object to submit the jobs, e.g.,
 
     $client->qsub($job);
 
 =back
 
-There are other methods and options of the client object and job object.
-However, most of them may appear to be too difficult for the first use. The
-only must option is C<cmd> which tells the client object what need to be
-submitted. Other options are optional. If omitted, default values are used.
+There are other methods and options of the client object and job object. Most
+of the options are optional. When omitted, default values would be used. The
+only must option is C<cmd> which tells the client object what commands to be
+submitted. 
 
 =head1 CLIENT OBJECT METHODS
 
@@ -742,7 +769,7 @@ submitted. Other options are optional. If omitted, default values are used.
     );
 
 Client object is created by the C<new> method. The name of the PBS server can
-by optionally supplied. If it is omitted, default server is assumed.
+by optionally supplied. If it is omitted, the default server is assumed.
 
 =head2 qsub()
 
@@ -762,7 +789,7 @@ An array reference of PBS job ID would be returned.
          name      => $name,            # job name, default: pbsjob.sh
          script    => $script,          # job script name, default: pbsjob.sh
          account   => $account,         # account string
-
+     
          # Resources options
          partition => $partition,       # partition
          queue     => $queue,           # queue
@@ -779,13 +806,13 @@ An array reference of PBS job ID would be returned.
          cput      => $cput,            # requested total CPU time
          pcput     => $pcput,           # requested per-process CPU time
          wallt     => $wallt,           # requested wall time
-
+     
          # IO options
          stagein   => $stagein,         # files staged in
          stageout  => $stageout,        # files staged out
          ofile     => $ofile,           # standard output file
          efile     => $efile,           # standard error file
-
+     
          # Command options
          cmd       => [@commands],      # command to be submitted
          prev      => {
@@ -800,7 +827,7 @@ An array reference of PBS job ID would be returned.
                        start => $job7,  # next job after $job started
                        end   => $job8,  # next job after $job ended
                       },
-
+     
          # Job tracer options
          tracer    => $on,              # job tracer, either on / off (default)
          tfile     => $tfile,           # tracer report file
@@ -810,15 +837,15 @@ Two points may be noted:
 
 =over
 
-=item 1 Except C<cmd>, all attributes are optional.
+=item 1. Except C<cmd>, all attributes are optional.
 
-=item 2 All attributes can also be modified by methods, e.g.,
+=item 2. All attributes can also be modified by methods, e.g.,
 
     $job = PBS::Client::Job->new(cmd => [@commands]);
 
 is equivalent to
 
-    $job = PBS::Client::Job->new;
+    $job = PBS::Client::Job->new();
     $job->cmd([@commands]);
 
 =back
@@ -867,6 +894,12 @@ Queue of which jobs are submitted to. If omitted, default queue would be used.
 The date-time at which the job begins to queue. The format is either
 "[[[[CC]YY]MM]DD]hhmm[.SS]" or "[[[[CC]YY-]MM-]DD] hh:mm[:SS]".
 
+Example:
+
+    $job->begint('200605231448.33');
+    # or equilvalently
+    $job->begint('2006-05-23 14:48:33');
+
 This feature is in Experimental phase. It may not be supported in later
 versions.
 
@@ -895,7 +928,7 @@ means that three nodes are used.
 
     # string representation
     nodes => "node01 + node02"
-
+    
     # array representation
     nodes => ["node01", "node02"]
 
@@ -994,7 +1027,8 @@ equilvalent:
 
 =head4 stageout
 
-Specify which files are need to stage (copy) out after the job finishs. Same as C<stagein>, it may be string, array reference or hash reference.
+Specify which files are need to stage (copy) out after the job finishs. Same as
+C<stagein>, it may be string, array reference or hash reference.
 
 Examples:
 
@@ -1169,7 +1203,7 @@ Hence, the following two statements are the same:
 
 =item 1. Submit a Single Command
 
-You want to run C<a.out> of current working directory in 'delta' queue
+You want to run C<a.out> of current working directory in the default queue:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
@@ -1180,7 +1214,7 @@ You want to run C<a.out> of current working directory in 'delta' queue
 =item 2. Submit a List of Commands
 
 You need to submit a list of commands to PBS. They are stored in the Perl array
-C<@jobs>. You want to execute them one by one in a single CPU.
+C<@jobs>. You want to execute them one by one in a single CPU:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
@@ -1192,7 +1226,7 @@ C<@jobs>. You want to execute them one by one in a single CPU.
 =item 3. Submit Multiple Lists
 
 You have 3 groups of commands, stored in C<@jobs_a>, C<@jobs_b>, C<@jobs_c>.
-You want to execute each group in different CPU.
+You want to execute each group in different CPU:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
@@ -1208,7 +1242,7 @@ You want to execute each group in different CPU.
 =item 4. Rearrange Commands (Specifying Number of Queues)
 
 You have 3 groups of commands, stored in C<@jobs_a>, C<@jobs_b>, C<@jobs_c>.
-You want to re-organize them to 4 groups.
+You want to re-organize them to 4 batches:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
@@ -1224,8 +1258,8 @@ You want to re-organize them to 4 groups.
 
 =item 5. Rearrange Commands (Specifying Commands Per Queue)
 
-You have 3 groups of commands, stored in C<@jobs_a>, C<@jobs_b>, C<@jobs_c>.
-You want to re-organize such that each group has 4 commands.
+You have 3 batches of commands, stored in C<@jobs_a>, C<@jobs_b>, C<@jobs_c>.
+You want to re-organize them such that each batch has 4 commands:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
@@ -1241,25 +1275,24 @@ You want to re-organize such that each group has 4 commands.
 
 =item 6. Customize resource
 
-You want to use customized resource rather than the default resource
-allocation.
+You want to customize the requested resources rather than using the default
+ones:
 
     use PBS::Client;
     my $pbs = PBS::Client->new;
-
-    my $job = Kode::PBS::Job->new(
-        account   => 'my_project',       # account string
-        partition => 'partition01',      # partition name
-        queue     => 'queue01',          # PBS queue name
-        wd        => '/tmp',             # working directory
-        name      => 'testing',          # job name
-        script    => 'test.sh',          # name of script generated
-
-        pri       => '10',               # higher priority
-        mem       => '800mb',            # 800 MB memory
-        cput      => '10:00:00',         # 10 hrs CPU time
-        wallt     => '05:00:00',         # 5 hrs wall time
-        cmd       => './a.out --debug',  # command line
+    
+    my $job = PBS::Client::Job->new(
+        account   => <account name>,
+        partition => <partition name>,
+        queue     => <queue name>,
+        wd        => <working directory of the commands>,
+        name      => <job name>,
+        script    => <name of the generated script>,
+        pri       => <priority>,
+        mem       => <memory>,
+        cput      => <maximum CPU time>,
+        wallt     => <maximu  wall clock time>,
+        cmd       => <commands to be submitted>,
     );
     $pbs->qsub($job);
 
@@ -1273,7 +1306,7 @@ successfully; otherwise run C<a3.out> and C<a4.out>.
     my $job1 = PBS::Client::Job->new(cmd => "./a1.out");
     my $job2 = PBS::Client::Job->new(cmd => "./a2.out");
     my $job3 = PBS::Client::Job->new(cmd => ["./a3.out", "./a4.out"]);
-
+    
     $job1->next({ok => $job2, fail => $job3});
     $pbs->qsub($job1);
 
@@ -1299,17 +1332,21 @@ The more detail manual can be viewed by
 
 =head1 REQUIREMENTS
 
-Class::MethodMaker
+L<Class::MethodMaker>, L<File::Temp>
+
+=head1 TEST
+
+This module has only been tested with OpenPBS in Linux.
 
 =head1 BUGS
 
-Perhaps many. Bugs and suggestions please email to kwmak@cpan.org
+Not known yet. Please email to kwmak@cpan.org for bug report or suggestions.
 
 =head1 SEE ALSO
 
-    PBS offical website http://www.openpbs.com,
+PBS offical website http://www.openpbs.com,
 
-    PBS
+L<PBS>
 
 =head1 AUTHOR(S)
 
@@ -1317,8 +1354,8 @@ Ka-Wai Mak <kwmak@cpan.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2006 Ka-Wai Mak. All rights reserved.
-This program is free software; you can redistribute it and/or
-modify it under the same terms as Perl itself.
+Copyright (c) 2006-2007 Ka-Wai Mak. All rights reserved. This program is free
+software; you can redistribute it and/or modify it under the same terms as Perl
+itself.
 
 =cut

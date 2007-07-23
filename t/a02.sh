@@ -1,6 +1,7 @@
 #!/bin/sh
 
-#PBS -d /tmp/test
+#PBS -N t02.sh
+#PBS -d /tmp
 #PBS -q queue01
 #PBS -p 10
 #PBS -l nodes=2:ppn=1

@@ -170,7 +170,7 @@ are ignored. For example:
 
     # This is a sample config file for the "run" utility
     queue = queue01
-	name  = sample
+    name  = sample
     
     nodes = ['node01', 'node02']
     ppn   = 2
@@ -179,7 +179,9 @@ are ignored. For example:
 
 To list the current configuration, use the C<-l> option. To create or edit the
 config file, use the C<-e> option. The default editor is C<vi>. To use other
-editor, please modify the environment variable EDITOR or VISUAL.
+editor, please modify the environment variable C<EDITOR> or C<VISUAL>.
+
+For a sample config file, please see F<bin/runrc>.
 
 =head1 EXAMPLES
 
@@ -205,15 +207,20 @@ or
 
 =head1 REQUIREMENTS
 
-PBS::Client
+L<PBS::Client>
 
 =head1 BUGS
 
-Perhaps many, but none is found yet. Bugs and suggestions please email to
-kwmak@cpan.org
+Not known yet. Please email to kwmak@cpan.org for bug report or suggestions.
 
 =head1 AUTHOR(S)
 
 Ka-Wai Mak <kwmak@cpan.org>
+
+=head1 COPYRIGHT
+
+Copyright (c) 2006-2007 Ka-Wai Mak. All rights reserved. This program is free
+software; you can redistribute it and/or modify it under the same terms as Perl
+itself.
 
 =cut
