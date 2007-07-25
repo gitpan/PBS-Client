@@ -12,6 +12,7 @@ make install
 Prerequisites
 =============
 Class::MethodMaker v1.11 or later
+File::Temp v0.14 or later
 
 Copyright
 =========

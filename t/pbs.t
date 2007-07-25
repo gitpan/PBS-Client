@@ -299,17 +299,23 @@ BEGIN
 # Test job submission and execution
 #----------------------------------
 {
-	my $pbs = PBS::Client->new();
+	SKIP: {
+		my $err = `qsub --version 2>&1 1>/dev/null`;
+		skip "Command qsub not found. Please check if PBS is installed.", 1
+			if ($err =~ /command not found/);
+		
+		my $pbs = PBS::Client->new();
+		
+		my $job = PBS::Client::Job->new(
+			efile => '/dev/null',
+			ofile => '/dev/null',
+			cmd   => '',
+		);
 	
-	my $job = PBS::Client::Job->new(
-		efile => '/dev/null',
-		ofile => '/dev/null',
-		cmd   => '',
-	);
-
-	my $id = $pbs->qsub($job);
-	system("qdel @$id") if (defined $id);
-	system("rm pbsjob.sh.$$id[0]");
+		my $id = $pbs->qsub($job);
+		system("qdel @$id") if (defined $id);
+		system("rm pbsjob.sh.$$id[0]");
 	
-	ok($$id[0] =~ /\d/, "job submission and execution");
+		ok($$id[0] =~ /\d/, "job submission and execution");
+	}
 }

@@ -2,7 +2,7 @@ package PBS::Client;
 use strict;
 use vars qw($VERSION);
 use Carp;
-$VERSION = 0.04;
+$VERSION = 0.05;
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -61,9 +61,9 @@ sub qsub
 {
 	my ($self, $job) = @_;
 
-	#------------------------------------------
-	# Codes for backward compatatible with v0.x
-	#------------------------------------------
+	#-----------------------------------------------
+	# Codes for backward compatatible with Kode v0.x
+	#-----------------------------------------------
 	if (!ref($job) || ref($job) eq 'ARRAY')
 	{
 		$self->cmd($job);
