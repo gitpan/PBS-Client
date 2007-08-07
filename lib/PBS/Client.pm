@@ -2,7 +2,7 @@ package PBS::Client;
 use strict;
 use vars qw($VERSION);
 use Carp;
-$VERSION = 0.05;
+$VERSION = 0.07;
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -61,9 +61,9 @@ sub qsub
 {
 	my ($self, $job) = @_;
 
-	#-----------------------------------------------
-	# Codes for backward compatatible with Kode v0.x
-	#-----------------------------------------------
+	#----------------------------------------------------------
+	# Codes for backward compatatible with old private software
+	#----------------------------------------------------------
 	if (!ref($job) || ref($job) eq 'ARRAY')
 	{
 		$self->cmd($job);
@@ -123,6 +123,72 @@ sub qsub
 #-------------------------------------------------------------------
 
 
+#-------------------------------------------------------------------
+# Dispatch PBS jobs by dispatch and qsub command
+# - Codes for backward compatible with old private software
+# - called subroutines: getScript()
+#
+# <IN>
+# $self -- server object
+# $job --- job object
+#
+# <OUT>
+# \@pbsid -- array reference of PBS job ID
+sub dispatch
+{
+	my ($self, $job) = @_;
+	my $file = $job->{script};
+
+	#-----------------------------------------------
+	# Dependency: count number of previous jobs
+	#-----------------------------------------------
+	my $on = &_numPrevJob($job);
+	$job->{depend}{on} = [$on] if ($on);
+	my @pbsid = ();
+
+	#---------
+	# Dispatch
+	#---------
+	my $subjob = $job->clone;
+	for (my $i = 0; $i < @{$job->{cmd}}; $i++)
+	{
+		#--------------
+		# Dispatch jobs
+		#--------------
+		my $list = ${$job->{cmd}}[$i];
+		my $djob = (ref $list)? (join("\n", @$list)): $list;
+		$djob =~ s/\\/\\\\/g;
+		$djob =~ s/"/\\\"/g;
+
+		#-----------------
+		# Dispatch command
+		#-----------------
+		my $cmd = 'echo "'."\n$djob\n".'" | dispatch';
+		$subjob->{cmd} = $cmd;
+	
+		#-------------------------------
+		# Generate and submit job script
+		#-------------------------------
+		my $numJob = (ref $list)? (scalar(@$list)): 1;
+		$subjob->nodes($numJob) if (!defined $subjob->{nodes});
+		my $tempFile = &genScript($self, $subjob);	# generate script
+		my $out = `qsub $tempFile`;					# submit script
+		my $pbsid = ($out =~ /^(\d+)/)[0];			# grab pid
+		rename($tempFile, "$file.$pbsid");			# rename script
+		push(@pbsid, $pbsid);
+	}
+	$job->pbsid(\@pbsid);
+
+	#-------------------------------------------------
+	# Dependency: dispatch previous and following jobs
+	#-------------------------------------------------
+	&_dphDepend($self, $job, \@pbsid);
+
+	return(\@pbsid);
+}
+#-------------------------------------------------------------------
+
+
 #-----------------------------------------------------------------
 # Generate shell script from command string array
 # - called subroutines: _trace(), _nodes(), _stage() and _depend()
@@ -137,12 +203,27 @@ sub qsub
 sub genScript
 {
 	my ($self, $job) = @_;
-	my $queue = '';
-	$queue .= $job->{queue};
-	$queue .= '@'.$self->{server} if (defined $self->{server});
-	my $partition;
-	$partition = $job->{partition};
 
+	#-------------------------
+	# Process the queue string
+	#-------------------------
+	my $queue = '';
+	$queue .= $job->{queue} if (defined $job->{queue});
+	$queue .= '@'.$self->{server} if (defined $self->{server});
+
+	#-------------------------------
+	# Process the mail option string
+	#-------------------------------
+	my $mailOpt;
+	if (defined $job->{mailopt})
+	{
+		$mailOpt = $job->{mailopt};
+		$mailOpt =~ s/\s*,\s*//;
+	}
+
+	#---------------------
+	# Generate node string
+	#---------------------
 	my $nodes = &_nodes($job);
 
 	#------------------------------------
@@ -156,17 +237,22 @@ sub genScript
 	# PBS request option list
 	#------------------------
 	open(SH, ">$file") || confess "Can't write $file";
-	print SH "#!/bin/sh\n\n";
+	print SH "#!$job->{shell}\n\n";
 	print SH "#PBS -N $job->{name}\n";
 	print SH "#PBS -d $job->{wd}\n";
 	print SH "#PBS -e $job->{efile}\n" if (defined $job->{efile});
 	print SH "#PBS -o $job->{ofile}\n" if (defined $job->{ofile});
 	print SH "#PBS -q $queue\n" if ($queue);
-	print SH "#PBS -W x=PARTITION:$partition\n" if (defined $partition);
+	print SH "#PBS -W x=PARTITION:$job->{partition}\n" if
+		(defined $job->{partition});
 	print SH "#PBS -W stagein=".&_stage('in', $job->{stagein})."\n" if
 		(defined $job->{stagein});
 	print SH "#PBS -W stageout=".&_stage('out', $job->{stageout})."\n" if
 		(defined $job->{stageout});
+	print SH "#PBS -M ".&_mailList($job->{maillist})."\n" if
+		(defined $job->{maillist});
+	print SH "#PBS -m ".$mailOpt."\n" if (defined $mailOpt);
+	print SH "#PBS -v ".&_varList($job->{vars})."\n" if (defined $job->{vars});
 	print SH "#PBS -A $job->{account}\n" if (defined $job->{account});
 	print SH "#PBS -p $job->{pri}\n" if (defined $job->{pri});
 	print SH "#PBS -l nodes=$nodes\n";
@@ -199,7 +285,7 @@ sub genScript
 			print SH "#PBS -a $begint\n";
 		}
 	}
-
+		
 	#----------------------
 	# Job dependency option
 	#----------------------
@@ -227,7 +313,7 @@ sub genScript
 			$server = `qstat -Bf|head -1`;
 			$server = substr($server, 8);
 		}
-		
+
 		my ($tfile) = (defined $job->{tfile})? ($job->{tfile}):
 			($job->{script}.'.t$PBS_JOBID');
 		&_trace($server, $tfile, $cmd);
@@ -336,6 +422,52 @@ sub _qsubDepend
 	}
 }
 #----------------------
+
+
+#------------------------
+# Dispatch dependent jobs
+# - called by dispatch()
+sub _dphDepend
+{
+	my ($self, $job, $pbsid) = @_;
+
+	my %type = (
+		'prevstart' => 'before',
+		'prevend'   => 'beforeany',
+		'prevok'    => 'beforeok',
+		'prevfail'  => 'beforenotok',
+		'nextstart' => 'after',
+		'nextend'   => 'afterany',
+		'nextok'    => 'afterok',
+		'nextfail'  => 'afternotok',
+		);
+
+	foreach my $order qw(prev next)
+	{
+		foreach my $cond qw(start end ok fail)
+		{
+			if (defined $job->{$order}{$cond})
+			{
+				my $type = $type{$order.$cond};
+				if (ref($job->{$order}{$cond}) eq 'ARRAY')	# array of job obj
+				{
+					foreach my $jobTmp (@{$job->{$order}{$cond}})
+					{
+						$$jobTmp{depend}{$type} = $pbsid;
+						&dispatch($self, $jobTmp);
+					}
+				}
+				else
+				{
+					my $jobTmp = $job->{$order}{$cond};
+					$$jobTmp{depend}{$type} = $pbsid;
+					&dispatch($self, $jobTmp);
+				}
+			}
+		}
+	}
+}
+#------------------------
 
 
 #-----------------------------------------------------
@@ -548,6 +680,92 @@ sub _depend
 #----------------------------------------------------------
 
 
+#----------------------------------------------------------
+# Construct the mail address list string
+# - called by genScript()
+#
+# <IN>
+# "abc@ABC.com, def@DEF.com" or
+# [qw(abc@ABC.com def@DEF.com)]
+#
+# <OUT>
+# abc@ABC.com,def@DEF.com
+sub _mailList
+{
+	my ($arg) = @_;
+	if (ref($arg) eq 'ARRAY')
+	{
+		return(join(',', @$arg));
+	}
+	else
+	{
+		$arg =~ s/,\s+/,/g;
+		return($arg);
+	}
+}
+#----------------------------------------------------------
+
+
+#----------------------------------------------------------
+# Construct the environment variable list string
+# - called by genScript()
+#
+# <IN>
+# ['A', 'B =b', {C => '', D => 'd'}],
+#
+# <OUT>
+# A,B=b,c,D=d
+sub _varList
+{
+	my ($arg) = @_;
+
+	if (ref($arg) eq 'ARRAY')
+	{
+		my $str;
+		foreach my $ele (@$arg)
+		{
+			$str .= ',' if (defined $str);
+			if (ref($ele) eq 'HASH')
+			{
+				$str .= &_hashVar($ele);
+			}
+			else
+			{
+				$ele =~ s/\s*=\s*/=/;	# remove possible spaces around "="
+				$str .= $ele;
+			}
+		}
+		return($str);
+	}
+	elsif (ref($arg) eq 'HASH')
+	{
+		return(&_hashVar($arg));
+	}
+	else
+	{
+		my $str = $arg;
+		$str =~ s/\s*=\s*/=/g;
+		$str =~ s/\s*,\s+/,/g;
+		return($str);
+	}
+
+	# Construct environment variable list string from hash
+	sub _hashVar
+	{
+		my ($h) = @_;
+		my $str;
+		foreach my $key (keys %$h)
+		{
+			$str .= ',' if (defined $str);
+			$str .= "$key";
+			$str .= "=$$h{$key}" if ($$h{$key} ne '');
+		}
+		return($str);
+	}
+}
+#----------------------------------------------------------
+
+
 #################### PBS::Client::Job ####################
 
 package PBS::Client::Job;
@@ -565,8 +783,8 @@ use Class::MethodMaker
 	deep_copy     => 'clone',
 	get_set       => [qw(wd name script tracer host nodes ppn account
 		partition queue begint ofile efile tfile pri mem pmem vmem pvmem cput
-		pcput wallt nice pbsid cmd prev next depend stagein stageout
-		_tempScript)];
+		pcput wallt nice pbsid cmd prev next depend stagein stageout vars
+		shell maillist mailopt _tempScript)];
 
 
 #-----------------------
@@ -589,6 +807,7 @@ sub init
 	$self->wd($wd);
 	$self->script('pbsjob.sh');
 	$self->tracer('off');
+	$self->shell('/bin/sh');
 
 	#-----------------------------
 	# optionally override defaults
@@ -696,7 +915,7 @@ __END__
 
 =head1 NAME
 
-PBS::Client - Job submission interface to PBS (Portable Batch System)
+PBS::Client - Perl interface to submit jobs to PBS (Portable Batch System)
 
 =head1 SYNOPSIS
 
@@ -723,16 +942,21 @@ PBS::Client - Job submission interface to PBS (Portable Batch System)
 =head1 DESCRIPTION
 
 This module provides a Perl interface to submit jobs to the PBS (Portable Batch
-System) server, which is a system to allocate recources of a cluster over jobs.
+System) server, which is a software allocating recources of a cluster to jobs.
 It lets you submit jobs on the fly.
 
-To submit jobs by PBS::Client, simply prepare two objects: the client object
-and the job object. The client object connects to the server and submits jobs
-(described by the job object) by the method C<qsub>.
+To submit jobs by PBS::Client, you need to prepare two objects: the client
+object and the job object. The client object connects to the server and submits
+jobs (described by the job object) by the method C<qsub>.
 
 The job object specifies various properties of a job (or a group of jobs).
 Properties that can be specified includes job name, CPU time, memory, priority,
 job inter-dependency and many others.
+
+This module attempts to adopt the same philosophy of Perl, of which it tries
+to understand what you want to do and gives you the least surprise. Therefore,
+you usually can do the same thing with more than one way. This is also a
+reason that makes this document lengthy.
 
 =head1 SIMPLE USAGE
 
@@ -788,6 +1012,7 @@ An array reference of PBS job ID would be returned.
          wd        => $wd,              # working directory, default: cwd
          name      => $name,            # job name, default: pbsjob.sh
          script    => $script,          # job script name, default: pbsjob.sh
+         shell     => $shell,           # shell path, default: /bin/sh
          account   => $account,         # account string
      
          # Resources options
@@ -812,20 +1037,23 @@ An array reference of PBS job ID would be returned.
          stageout  => $stageout,        # files staged out
          ofile     => $ofile,           # standard output file
          efile     => $efile,           # standard error file
+         maillist  => $mails,           # mail address list
+         mailopt   => $options,         # mail options, combination of a, b, e
      
          # Command options
+         vars      => {%name_values},   # name-value of env variables
          cmd       => [@commands],      # command to be submitted
-         prev      => {
-                       ok    => $job1,  # successful job before $job
-                       fail  => $job2,  # failed job before $job
-                       start => $job3,  # started job before $job
-                       end   => $job4,  # ended job before $job
+         prev      => {                 # job before
+                       ok    => $job1,  # successful job before this job
+                       fail  => $job2,  # failed job before this job
+                       start => $job3,  # started job before this job
+                       end   => $job4,  # ended job before this job
                       },
-         next      => {
-                       ok    => $job5,  # next job after $job succeeded
-                       fail  => $job6,  # next job after $job failed
-                       start => $job7,  # next job after $job started
-                       end   => $job8,  # next job after $job ended
+         next      => {                 # job follows
+                       ok    => $job5,  # next job after this job succeeded
+                       fail  => $job6,  # next job after this job failed
+                       start => $job7,  # next job after this job started
+                       end   => $job8,  # next job after this job ended
                       },
      
          # Job tracer options
@@ -872,6 +1100,10 @@ Example: C<< script => test.sh >> would generate a job script like
 F<test.sh.12345> if the job ID is '12345'.
 
 The default value is C<pbsjob.sh>.
+
+=head4 shell
+
+Thsi option lets you to set the shell path. The default path is C</bin/sh>.
 
 =head4 account
 
@@ -1063,7 +1295,65 @@ Path of the file for standard error. The default filename is like
 F<jobName.e12345> if the job name is 'jobName' and its ID is '12345'. Please
 see also C<ofile>.
 
+=head4 maillist
+
+This option declares who (the email address list) will receive mail about the
+job. The default is the job owner. The situation that the server will send
+email is set by the C<mailopt> option shown below.
+
+For more than one email addresses, C<maillist> can be either a comma separated
+string or a array reference.
+
+=head4 mailopt
+
+This option declares under what situation will the server send email. It can be
+any combination of C<a>, which indicates that mail will be sent if the job is
+aborted, C<b>, indicating that mail will be sent if the job begins to run, and
+C<e>, which indicates that mail will be sent if the job finishes. For example,
+
+    mailopt => "b, e"
+    # or lazily,
+    mailopt => "be"
+
+means that mail will be sent when the job begins to run and finishes.
+
+The default is C<a>.
+
 =head3 Command Options
+
+=head4 vars
+
+This option lets you expand the environment variables exported to the job. It
+can be a string, array reference or hash reference.
+
+Example: to export the following variables to the job: 
+
+    A
+    B = b
+    C
+    D = d
+
+you may use one of the following ways:
+
+=over
+
+=item * String
+
+    vars => "A, B=b, C, D=d",
+
+=item * Array reference
+
+    vars => ['A', 'B=b', 'C', 'D=d']
+
+=item * Hash reference
+
+    vars => {A => '', B => 'b', C => '', D => 'd'}
+
+=item * Mixed
+
+    vars => ['A', 'C', {B => 'b', D => 'd'}]
+
+=back
 
 =head4 cmd
 
@@ -1115,8 +1405,12 @@ job(s) which has started execution. C<end> declares job(s) which has already
 ended. C<ok> declares job(s) which has finished successfully. C<fail> declares
 job(s) which failed. Please see also C<next>.
 
-Example: C<< $job1->prev({ok => $job2, fail => $job3}) >> means that C<$job1>
-is executed only after C<$job2> exits normally and C<job3> exits with error.
+Example:
+
+    $job1->prev({ok => $job2, fail => $job3})
+
+means that C<$job1> is executed only after C<$job2> exits normally and C<job3>
+exits with error.
 
 =head4 next
 
@@ -1126,9 +1420,12 @@ after started execution. C<end> declares job(s) after finished execution. C<ok>
 declares job(s) after finished successfully. C<fail> declares job(s) after
 failure. Please see also C<prev>.
 
-Example: C<< $job1->next({ok => $job2, fail => $job3}) >> means that C<$job2>
-would be executed after C<$job1> exits normally, and otherwise C<job3> would be
-executed instead.
+Example:
+
+    $job1->next({ok => $job2, fail => $job3})
+
+means that C<$job2> would be executed after C<$job1> exits normally, and
+otherwise C<job3> would be executed instead.
 
 =head3 Job Tracer Options
 
@@ -1336,11 +1633,25 @@ L<Class::MethodMaker>, L<File::Temp>
 
 =head1 TEST
 
-This module has only been tested with OpenPBS in Linux.
+This module has only been tested with OpenPBS in Linux. However, it was written
+to fit in as many Unix-like OS with PBS installed as possible.
 
-=head1 BUGS
+=head1 BUGS AND LIMITATIONS
 
-Not known yet. Please email to kwmak@cpan.org for bug report or suggestions.
+=over
+
+=item 1. This module requires the PBS command line tools, especially C<qsub>
+and C<qstat>.
+
+=item 2. This module requires that all nodes can execute Bourne shell scripts,
+and that the shell path are the same.
+
+=item 3. Jobs with inter-dependency cannot be submitted to the non-default
+server. This limitation will be removed soon, hopefully.
+
+=back
+
+Please email to kwmak@cpan.org for bug report or other suggestions.
 
 =head1 SEE ALSO
 

@@ -66,15 +66,17 @@ while (!$JOB)
 #----------------------------
 # Read config and submit jobs
 #----------------------------
-my %cfg = readCfg("$ENV{HOME}/.runrc");
+my ($server, $cfg) = readCfg("$ENV{HOME}/.runrc");
 my $pbs = PBS::Client->new;
+$pbs->server($server) if ($server ne '');
 my $job = PBS::Client::Job->new(
 	cmd    => $JOB,
-	%cfg,
+	%$cfg,
 );
 my $command = (split(/\s+/, $JOB))[0];
 $command =~ s/.+\///;
-$job->script("$command.sh") if (!defined $cfg{script});
+$job->script("$command.sh") if (!defined $$cfg{script});
+$job->name("$command.sh") if (!defined $$cfg{name});
 $pbs->qsub($job);
 
 ########################## SUBROUTINES ##########################
@@ -101,7 +103,8 @@ sub editCfg
 sub readCfg
 {
 	my ($cfgFile) = @_;
-	my ($sect, %cfg);
+	my $server = '';
+	my %cfg;
 	open(CFG, "$cfgFile") || die "Please use \"run -e\" to config first.\n";
 	while(chomp($_ = <CFG>))
 	{
@@ -111,13 +114,21 @@ sub readCfg
 		my @a = split(/\s*=\s*/);
 		my $val = $a[1];
 
-		# Eval unless the value is a string beginning with a letter
+		# Eval unless the value is a string beginning with a digit
 		$val = eval($a[1]) if ($a[1] !~ /^\d/ ||
 			$a[1] =~ /^([+-]?)(?=\d|\.\d)\d*(\.\d*)?([Ee]([+-]?\d+))?$/);
-		$cfg{$a[0]} = ($@)? ($a[1]) : ($val);
+
+		if ($a[0] eq "server")
+		{
+			$server = $a[1];
+		}
+		else
+		{
+			$cfg{$a[0]} = ($@)? ($a[1]) : ($val);
+		}
 	}
 	close(CFG);
-	return %cfg;
+	return($server, \%cfg);
 }
 
 
@@ -125,11 +136,11 @@ __END__
 
 =head1 NAME
 
-run - job submission script for PBS (Portable Batch System)
+run - Script to submit job to PBS (Portable Batch System) as easy as possible
 
 =head1 SYNOPSIS
 
-  run [command [arguments]]
+  run "command line"
   run [-h | -m | -v | -l | -e]
     -h  help
     -m  print the manual
@@ -169,19 +180,20 @@ Spaces beside C<=> are optional. Also, lines beginning with "#" and blank lines
 are ignored. For example:
 
     # This is a sample config file for the "run" utility
-    queue = queue01
-    name  = sample
+	server = server01
+    queue  = queue01
+    name   = sample
     
-    nodes = ['node01', 'node02']
-    ppn   = 2
-    cput  = 01:00:00
-    mem   = 600mb
+    nodes  = ['node01', 'node02']
+    ppn    = 2
+    cput   = 01:00:00
+    mem    = 600mb
 
 To list the current configuration, use the C<-l> option. To create or edit the
 config file, use the C<-e> option. The default editor is C<vi>. To use other
 editor, please modify the environment variable C<EDITOR> or C<VISUAL>.
 
-For a sample config file, please see F<bin/runrc>.
+For a sample config file, please see F<bin/runrc> in the module directory.
 
 =head1 EXAMPLES
 
@@ -189,17 +201,13 @@ For a sample config file, please see F<bin/runrc>.
 
 =item (1) Execute C<./a.out>
 
-    run ./a.out
+    run "./a.out"
 
 =item (2) Execute C<./a.out -a arg1 -b arg2 arg3>
 
-    run ./a.out -a arg1 -b arg2 arg3
+    run "./a.out -a arg1 -b arg2 arg3"
 
 =item (3) Execute C<< ./a.out > /tmp/a.dat >>
-
-    run ./a.out \> /tmp/a.dat
-
-or
 
     run "./a.out > /tmp/a.dat"
 

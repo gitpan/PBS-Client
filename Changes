@@ -1,5 +1,14 @@
 Change log for PBS::Client
 
+0.07
+	- Add option set shell path (shell)
+	- Add option to set environment variables (vars)
+	- Add mail list option (maillist)
+	- Add mail option (mailopt)
+	- run script: support declaring PBS server
+
+0.06 (unreleased version)
+
 0.05
 	- Fix a bug in the testsuite
 	- Add checking for availibility of File::Temp in Makefile.PL

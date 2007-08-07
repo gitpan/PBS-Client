@@ -300,9 +300,10 @@ BEGIN
 #----------------------------------
 {
 	SKIP: {
-		my $err = `qsub --version 2>&1 1>/dev/null`;
-		skip "Command qsub not found. Please check if PBS is installed.", 1
-			if ($err =~ /command not found/);
+		my $qsubTest = `which qsub 2>/dev/null`;
+		my $qdelTest = `which qdel 2>/dev/null`;
+		skip "Command qsub or qdel not found. Please check if PBS is ".
+			 "installed.", 1 if (!$qsubTest || !$qdelTest);
 		
 		my $pbs = PBS::Client->new();
 		
