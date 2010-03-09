@@ -1,35 +1,42 @@
 Change log for PBS::Client
 
+0.08
+    - Add license session
+    - Remove dependency of Class::MethodMaker. Use Data::Dumper to copy objects
+    - Better organized test suite. Add test cases
+    - Reduce the OS dependency of the test suite
+    - Improve documentation
+
 0.07
-	- Add option set shell path (shell)
-	- Add option to set environment variables (vars)
-	- Add mail list option (maillist)
-	- Add mail option (mailopt)
-	- run script: support declaring PBS server
+    - Add option set shell path (shell)
+    - Add option to set environment variables (vars)
+    - Add mail list option (maillist)
+    - Add mail option (mailopt)
+    - "run" script: support declaring PBS server
 
 0.06 (unreleased version)
 
 0.05
-	- Fix a bug in the testsuite
-	- Add checking for availibility of File::Temp in Makefile.PL
-	- Update README
+    - Fix a bug in the testsuite
+    - Add checking for availibility of File::Temp in Makefile.PL
+    - Update README
 
 0.04
-	- Improve documentation
-	- Improve output format of job tracer
-	- Use temp file to store the temporary script to avoid possible conflict of
-	  filename
+    - Improve documentation
+    - Improve output format of job tracer
+    - Use temp file to store the temporary script to avoid possible conflict of
+      filename
 
 0.03
-	- Improve documentation
-	- Improve the config file parser in the "run" utility
-	- Support string and hash representation of the "stagein" and 
-	  "stageout" options
-	- Add begin time option (experimental)
-	- Add job tracing options (experimental)
+    - Improve documentation
+    - Improve the config file parser in the "run" utility
+    - Support string and hash representation of the "stagein" and 
+      "stageout" options
+    - Add begin time option (experimental)
+    - Add job tracing options (experimental)
 
 0.02
-	Improve documentation
+    Improve documentation
 
 0.01
-	Initial public release
+    Initial public release

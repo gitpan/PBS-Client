@@ -1,12 +1,23 @@
-# http://module-build.sourceforge.net/META-spec.html
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         PBS-Client
-version:      0.07
-version_from: lib/PBS/Client.pm
-installdirs:  site
+--- #YAML:1.0
+name:               PBS-Client
+version:            0.08
+abstract:           Perl interface to submit jobs to PBS (Portable Batch System)
+author:
+    - Ka-Wai Mak
+license:            perl
+distribution_type:  module
+configure_requires:
+    ExtUtils::MakeMaker:  0
+build_requires:
+    ExtUtils::MakeMaker:  0
 requires:
-    Class::MethodMaker:            1.11
-    File::Temp:                    0.14
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.17
+    Data::Dumper:  2.121
+    File::Temp:    0.14
+no_index:
+    directory:
+        - t
+        - inc
+generated_by:       ExtUtils::MakeMaker version 6.50
+meta-spec:
+    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
+    version:  1.4
