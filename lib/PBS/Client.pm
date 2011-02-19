@@ -3,7 +3,7 @@ use strict;
 use vars qw($VERSION);
 use Carp;
 use File::Temp qw(tempfile);
-$VERSION = 0.08;
+$VERSION = 0.09;
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -93,7 +93,7 @@ sub qsub
     if (!ref($job->{cmd}))
     {
         my $tempFile = &genScript($self, $job);           # generate script
-        my $out = `qsub $tempFile`;                       # submit script
+        my $out = &call_qsub($tempFile);                  # submit script
         my $pbsid = ($out =~ /^(\d+)/)[0];                # get pid
         rename($tempFile, "$file.$pbsid");                # rename script
         push(@pbsid, $pbsid);
@@ -111,10 +111,10 @@ sub qsub
             my $list = ${$job->{cmd}}[$i];
             my $cmd = (ref $list)? (join("\n", @$list)): $list;
             $subjob->{cmd} = $cmd;
-    
+
             # Generate and submit job script
             my $tempFile = &genScript($self, $subjob);    # generate script
-            my $out = `qsub $tempFile`;                   # submit script
+            my $out = &call_qsub($tempFile);              # submit script
             my $pbsid = ($out =~ /^(\d+)/)[0];            # get pid
             rename($tempFile, "$file.$pbsid");            # rename script
             push(@pbsid, $pbsid);
@@ -128,6 +128,28 @@ sub qsub
     &_qsubDepend($self, $job, \@pbsid);
 
     return(\@pbsid);
+}
+#-------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------
+# Thanks to Sander Hulst
+sub call_qsub
+{
+    my ($tempFile) = @_;
+
+    # If the qsub command fails, for instance, pbs_server is not running,
+    # PBS::Client's qsub should not silently ignore. Disable any reaper
+    # functions so the exit code can be captured
+    use Symbol qw(gensym);
+    use IPC::Open3;
+    {
+        local $SIG{CHLD} = sub{};
+        my $pid = open3(gensym, \*CHLD_OUT, \*CHLD_ERR, 'qsub', $tempFile);
+        waitpid($pid,0);
+    }
+    confess <CHLD_ERR> if ($?);
+    return <CHLD_OUT>;
 }
 #-------------------------------------------------------------------
 
@@ -174,7 +196,7 @@ sub dispatch
         #-----------------
         my $cmd = 'echo "'."\n$djob\n".'" | dispatch';
         $subjob->{cmd} = $cmd;
-    
+
         #-------------------------------
         # Generate and submit job script
         #-------------------------------
@@ -274,6 +296,10 @@ sub genScript
     print SH "#PBS -l pcput=$job->{pcput}\n" if (defined $job->{pcput});
     print SH "#PBS -l walltime=$job->{wallt}\n" if (defined $job->{wallt});
     print SH "#PBS -l nice=$job->{nice}\n" if (defined $job->{nice});
+    print SH "#PBS -l prologue=$job->{prologue}\n" if
+        (defined $job->{prologue});
+    print SH "#PBS -l epilogue=$job->{epilogue}\n" if
+        (defined $job->{epilogue});
 
     #---------------
     # Beginning time
@@ -921,7 +947,7 @@ __END__
 
 =head1 NAME
 
-PBS::Client - Perl interface to submit jobs to PBS (Portable Batch System)
+PBS::Client - Perl interface to submit jobs to Portable Batch System (PBS).
 
 =head1 SYNOPSIS
 
@@ -947,9 +973,9 @@ PBS::Client - Perl interface to submit jobs to PBS (Portable Batch System)
 
 =head1 DESCRIPTION
 
-This module provides a Perl interface to submit jobs to the PBS (Portable Batch
-System) server. PBS is a software allocating recources of a network to batch
-jobs. This module lets you submit jobs on the fly.
+This module provides a Perl interface to submit jobs to the Portable Batch
+System (PBS) server. PBS is a software allocating recources of a network to
+batch jobs. This module lets you submit jobs on the fly.
 
 To submit jobs by PBS::Client, you need to prepare two objects: the client
 object and the job object. The client object connects to the server and submits
@@ -1600,7 +1626,9 @@ ones:
         pri       => <priority>,
         mem       => <memory>,
         cput      => <maximum CPU time>,
-        wallt     => <maximu  wall clock time>,
+        wallt     => <maximum wall clock time>,
+        prologue  => <prologue script>,
+        epilogue  => <epilogue script>,
         cmd       => <commands to be submitted>,
     );
     $pbs->qsub($job);
@@ -1677,7 +1705,7 @@ Ka-Wai Mak <kwmak@cpan.org>
 
 =head1 COPYRIGHT
 
-Copyright (c) 2006-2007, 2010 Ka-Wai Mak. All rights reserved.
+Copyright (c) 2006-2007, 2010-2011 Ka-Wai Mak. All rights reserved.
 
 =head1 LICENSE
 

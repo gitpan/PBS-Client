@@ -1,5 +1,11 @@
 Change log for PBS::Client
 
+0.09
+    - Catch error message of "qsub".
+      (thanks to Sander Hulst)
+    - Support "prologue" and "epilogue"
+      (thanks to Sander Hulst)
+
 0.08
     - Add license session
     - Remove dependency of Class::MethodMaker. Use Data::Dumper to copy objects

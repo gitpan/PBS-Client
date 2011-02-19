@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:               PBS-Client
-version:            0.08
-abstract:           Perl interface to submit jobs to PBS (Portable Batch System)
+version:            0.09
+abstract:           Perl interface to submit jobs to Portable Batch System (PBS).
 author:
     - Ka-Wai Mak
 license:            perl
@@ -13,6 +13,8 @@ build_requires:
 requires:
     Data::Dumper:  2.121
     File::Temp:    0.14
+    IPC::Open3:    1.02
+    Symbol:        1.06
 no_index:
     directory:
         - t
