@@ -3,7 +3,7 @@ use strict;
 use vars qw($VERSION);
 use Carp;
 use File::Temp qw(tempfile);
-$VERSION = 0.09;
+$VERSION = '0.10';
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -136,20 +136,22 @@ sub qsub
 # Thanks to Sander Hulst
 sub call_qsub
 {
-    my ($tempFile) = @_;
+    my @args = @_;
 
     # If the qsub command fails, for instance, pbs_server is not running,
     # PBS::Client's qsub should not silently ignore. Disable any reaper
     # functions so the exit code can be captured
     use Symbol qw(gensym);
     use IPC::Open3;
+	my $stdout = gensym();
+	my $stderr = gensym();
     {
         local $SIG{CHLD} = sub{};
-        my $pid = open3(gensym, \*CHLD_OUT, \*CHLD_ERR, 'qsub', $tempFile);
+        my $pid = open3(gensym, $stdout, $stderr, @args);
         waitpid($pid,0);
     }
-    confess <CHLD_ERR> if ($?);
-    return <CHLD_OUT>;
+    confess <$stderr> if ($?);
+    return <$stdout>;
 }
 #-------------------------------------------------------------------
 
@@ -431,9 +433,9 @@ sub _qsubDepend
         'nextfail'  => 'afternotok',
         );
 
-    foreach my $order qw(prev next)
+    foreach my $order (qw(prev next))
     {
-        foreach my $cond qw(start end ok fail)
+        foreach my $cond (qw(start end ok fail))
         {
             if (defined $job->{$order}{$cond})
             {
@@ -477,9 +479,9 @@ sub _dphDepend
         'nextfail'  => 'afternotok',
         );
 
-    foreach my $order qw(prev next)
+    foreach my $order (qw(prev next))
     {
-        foreach my $cond qw(start end ok fail)
+        foreach my $cond (qw(start end ok fail))
         {
             if (defined $job->{$order}{$cond})
             {

@@ -1,5 +1,10 @@
 Change log for PBS::Client
 
+0.10
+    - FIX error message catching of "qsub".
+      (thanks to Sander Hulst)
+	- FIX avoid using deprecated Perl syntax.
+
 0.09
     - Catch error message of "qsub".
       (thanks to Sander Hulst)
