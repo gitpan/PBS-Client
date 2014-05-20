@@ -1,9 +1,13 @@
 Change log for PBS::Client
 
+0.11
+    - FIX error in using IPC::Open3
+      (thanks to Demian Riccardi)
+
 0.10
     - FIX error message catching of "qsub".
       (thanks to Sander Hulst)
-	- FIX avoid using deprecated Perl syntax.
+    - FIX avoid using deprecated Perl syntax.
 
 0.09
     - Catch error message of "qsub".

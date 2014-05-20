@@ -3,7 +3,7 @@ use strict;
 use vars qw($VERSION);
 use Carp;
 use File::Temp qw(tempfile);
-$VERSION = '0.10';
+$VERSION = '0.11';
 
 #------------------------------------------------
 # Submit jobs to PBS
@@ -89,11 +89,12 @@ sub qsub
 
     #-----------------------------------------------
     # Single job
+	# Thanks to Demian Ricchardi for a bug fix
     #-----------------------------------------------
     if (!ref($job->{cmd}))
     {
         my $tempFile = &genScript($self, $job);           # generate script
-        my $out = &call_qsub($tempFile);                  # submit script
+        my $out = &call_qsub('qsub', $tempFile);          # submit script
         my $pbsid = ($out =~ /^(\d+)/)[0];                # get pid
         rename($tempFile, "$file.$pbsid");                # rename script
         push(@pbsid, $pbsid);
@@ -101,6 +102,7 @@ sub qsub
     }
     #-----------------------------------------------
     # Multiple (matrix of) jobs
+	# Thanks to Demian Ricchardi for a bug fix
     #-----------------------------------------------
     else
     {
@@ -114,7 +116,7 @@ sub qsub
 
             # Generate and submit job script
             my $tempFile = &genScript($self, $subjob);    # generate script
-            my $out = &call_qsub($tempFile);              # submit script
+            my $out = &call_qsub('qsub', $tempFile);      # submit script
             my $pbsid = ($out =~ /^(\d+)/)[0];            # get pid
             rename($tempFile, "$file.$pbsid");            # rename script
             push(@pbsid, $pbsid);
